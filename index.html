@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal Relay — WebRTC Camera / Serial Link</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0a0d0c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CRSF Relay">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="dialog-overlay" id="modeDialog">
+    <div class="dialog-mark"></div>
+    <div class="dialog-title">Signal Relay</div>
+    <div class="dialog-sub">Peer-to-peer video and serial-port bridge over WebRTC. No server — connections are paired by copy/pasting a short connection code between devices.</div>
+    <div class="dialog-cards">
+      <div class="mode-card bracketed" id="cardCamera" tabindex="0" role="button">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <div class="glyph">Source</div>
+        <h3>Camera</h3>
+        <p>Captures local video and a local serial port. Streams video out, forwards serial bytes over the link, writes incoming link bytes back to the port.</p>
+      </div>
+      <div class="mode-card bracketed" id="cardViewer" tabindex="0" role="button">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <div class="glyph">Remote</div>
+        <h3>Viewer</h3>
+        <p>Watches the incoming video feed and exchanges text/command messages with the camera side's serial port.</p>
+      </div>
+    </div>
+    <div class="dialog-footnote">Web Serial requires Chrome or Edge. Camera and serial access require a secure context (https://, localhost, or a local file).</div>
+  </div>
+
+  <div class="app" id="app" hidden>
+    <div class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <span class="word">Signal Relay</span>
+        <span class="mode-pill" id="modePill"></span>
+      </div>
+      <div class="topbar-right">
+        <div class="led-cluster">
+          <div class="led-item"><span class="led st-off" id="ledConn"></span><span class="led-label">Conn</span></div>
+          <div class="led-item"><span class="led st-off" id="ledData"></span><span class="led-label">Data</span></div>
+          <div class="led-item"><span class="led st-off" id="ledMedia"></span><span class="led-label">Media</span></div>
+        </div>
+        <button class="btn small" id="btnReset">Reset session</button>
+        <button class="link-btn" id="btnChangeMode">change mode</button>
+      </div>
+    </div>
+
+    <div class="layout">
+
+      <div class="viewport bracketed" id="viewport">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <video id="mainVideo" autoplay playsinline hidden></video><div id="localGrid" class="camera-grid"></div><div id="remoteGrid" class="camera-grid"></div>
+        <div class="tag"><span class="dot" id="videoTagDot"></span><span id="videoTagText">no signal</span></div>
+        <div class="empty-hint" id="emptyHint">waiting for video…</div>
+      </div>
+
+      <div class="control-panel">
+
+        <div id="cameraControls" hidden>
+          <div class="card card gap-card">
+            <h4>Camera</h4>
+            <div class="field">
+              <label for="cameraSelect">Video source</label>
+              <select id="cameraSelect" disabled><option value="">start camera to list devices</option></select>
+            </div>
+            <button class="btn accent full" id="btnStartCamera">Start camera</button>
+            <button class="btn small full top8" id="btnTestTorch" disabled>Test torch (bypasses viewer link)</button>
+            <div class="status-line" id="cameraStatus"></div><div id="cameraErrors"></div>
+          </div>
+
+          <div class="card card gap-card">
+            <h4>Serial port</h4>
+            <div class="field">
+              <label for="baudRate">Baud rate</label>
+              <input type="number" id="baudRate" value="115200">
+            </div>
+            <div class="row">
+              <button class="btn accent" id="btnConnectSerial">Connect port</button>
+              <button class="btn danger" id="btnDisconnectSerial" disabled>Disconnect</button>
+            </div>
+            <button class="btn small" id="btnConnectWebUSB" class="btn small full top8">No devices found? Try WebUSB (Android)</button>
+            <div class="status-line" id="serialStatus"></div>
+            <div class="hint">Bytes read from the port are forwarded over the data channel as-is (binary safe). Bytes arriving over the data channel are written straight back to the port. WebUSB fallback supports CH340/CH341 and FTDI adapters at 2400–115200 baud, for browsers (e.g. Android Chrome) where Web Serial can't see USB-serial hardware yet.</div>
+          </div>
+
+          <div class="card card gap-card">
+            <h4>Sensors</h4>
+            <label class="check-row"><input type="checkbox" id="chkTelemetry"> Send GPS &amp; motion telemetry to viewer</label>
+            <div class="hint">Uses this device's Geolocation and motion sensors, when present, and sends CRSF 0x02 GPS / 0x13 Accel-Gyro frames over the same data channel as the serial bytes. Axis signs are best-effort and depend on how this device is mounted on the vehicle.</div>
+            <div class="status-line" id="telemetryStatus"></div>
+          </div>
+
+          <div class="card">
+            <h4>Pairing</h4>
+            <div class="step">
+              <div class="step-num">01</div>
+              <div class="step-body">
+                <div class="step-title">Generate a connection code and send it to the viewer</div>
+                <button class="btn" id="btnCreateOffer" class="full" disabled>Create offer</button>
+                <textarea id="offerOutput" readonly placeholder="offer code appears here…" class="top8"></textarea>
+                <button class="btn small" id="btnCopyOffer" class="top6">Copy</button>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">02</div>
+              <div class="step-body">
+                <div class="step-title">Paste the code the viewer sends back</div>
+                <textarea id="answerInput" placeholder="paste viewer's answer code…"></textarea>
+                <button class="btn accent small" id="btnAcceptAnswer" class="top6">Connect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="viewerControls" hidden>
+          <div class="card card gap-card" id="viewerPairingCard">
+            <h4>Pairing</h4>
+            <div class="step">
+              <div class="step-num">01</div>
+              <div class="step-body">
+                <div class="step-title">Paste the connection code from the camera side</div>
+                <textarea id="offerInput" placeholder="paste camera's offer code…"></textarea>
+                <button class="btn accent small" id="btnLoadOffer" class="top6">Load &amp; generate answer</button>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">02</div>
+              <div class="step-body">
+                <div class="step-title">Send this code back to the camera side</div>
+                <textarea id="answerOutput" readonly placeholder="answer code appears here…"></textarea>
+                <button class="btn small" id="btnCopyAnswer" class="top6">Copy</button>
+              </div>
+            </div>
+            <div class="status-line" id="viewerStatus"></div>
+          </div>
+
+          <div class="card card gap-card">
+            <h4>Vehicle control</h4>
+            <div class="joystick-wrap">
+              <div class="joystick-base disabled" id="joystickBase">
+                <div class="joystick-caps">
+                  <span class="jcap fwd">FWD</span>
+                  <span class="jcap back">BACK</span>
+                  <span class="jcap left">LEFT</span>
+                  <span class="jcap right">RIGHT</span>
+                </div>
+                <div class="joystick-knob" id="joystickKnob"></div>
+              </div>
+              <div class="joystick-readout">
+                <span id="throttleValue">0%</span>&nbsp;·&nbsp;<span id="steerValue">0%</span>
+              </div>
+            </div>
+            <div class="row toggle-row">
+              <button class="btn toggle" id="btnArm" disabled>Arm</button>
+              <button class="btn toggle" id="btnLight" disabled>Light</button>
+            </div>
+            <label class="check-row"><input type="checkbox" id="chkRecOnArm" checked> Rec on arm</label>
+            <div class="hint">Drag with one thumb — release to spring back to center. CRSF RC-channel frames are sent to the camera side's serial port continuously (~20&nbsp;Hz) while connected. Keep this tab in the foreground — backgrounding it (screen lock, app switch) lets the browser throttle the link and can trip the vehicle's failsafe.</div>
+            <div class="status-line" id="controlStatus"></div>
+          </div>
+
+          <div class="card">
+            <h4>Telemetry</h4>
+            <div class="telemetry-row">
+              <span class="telemetry-label">Battery</span>
+              <span class="telemetry-value stale" id="batteryVoltage">— V</span>
+            </div>
+            <div class="telemetry-row">
+              <span class="telemetry-label">Position</span>
+              <span class="telemetry-value stale" id="gpsPosition">—</span>
+            </div>
+            <div class="telemetry-sub" id="gpsSub"></div>
+            <div class="telemetry-row">
+              <span class="telemetry-label">Gyro</span>
+              <span class="telemetry-value stale" id="gyroValues">x — · y — · z —</span>
+            </div>
+            <div class="telemetry-row">
+              <span class="telemetry-label">Accel</span>
+              <span class="telemetry-value stale" id="accelValues">x — · y — · z —</span>
+            </div>
+          </div>
+
+          <div class="card" id="armLogDownloads" hidden>
+            <h4>ARM session data</h4>
+            <div class="telemetry-sub">Recorded while ARM was active. Points are stored only when their values change.</div>
+            <div id="armLogDownloadList" class="arm-log-downloads"></div>
+          </div>
+        </div>
+
+        <div class="card log-console">
+          <h4>Activity log <button class="link-btn" id="btnClearLog">clear</button></h4>
+          <ul class="log-list" id="logList"><li class="log-empty" style="list-style:none;">—</li></ul>
+        </div>
+
+      </div>
+    </div>
+  </div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,722 @@
+:root{
+    --void:#0a0d0c;
+    --panel-bg:#10151a;
+    --panel-2:#161c19;
+    --line:#223129;
+    --line-soft:#1a231e;
+    --text:#e8f5ee;
+    --text-dim:#7c9186;
+    --text-faint:#4a5a51;
+    --green:#4dffb0;
+    --amber:#ffb454;
+    --red:#ff5c5c;
+    --green-dim:rgba(77,255,176,0.10);
+    --amber-dim:rgba(255,180,84,0.10);
+    --red-dim:rgba(255,92,92,0.10);
+    --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "Roboto Mono", monospace;
+  }
+
+  *{ box-sizing:border-box; }
+
+  [hidden]{ display:none !important; }
+
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--void);
+    background-image:
+      radial-gradient(circle at 15% -10%, #0e1a15 0%, transparent 45%),
+      radial-gradient(circle at 100% 110%, #0d1712 0%, transparent 40%);
+    color:var(--text);
+    font-family:var(--font-mono);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  button, input, select, textarea{ font-family:inherit; font-size:inherit; color:inherit; }
+
+  :focus-visible{ outline:2px solid var(--green); outline-offset:2px; }
+
+  .bracketed{ position:relative; }
+  .bracketed > .corner{ position:absolute; width:14px; height:14px; border:0 solid var(--green); opacity:.55; pointer-events:none; transition:opacity .15s ease, border-color .15s ease; }
+  .bracketed > .corner.tl{ top:-1px; left:-1px; border-top-width:2px; border-left-width:2px; }
+  .bracketed > .corner.tr{ top:-1px; right:-1px; border-top-width:2px; border-right-width:2px; }
+  .bracketed > .corner.bl{ bottom:-1px; left:-1px; border-bottom-width:2px; border-left-width:2px; }
+  .bracketed > .corner.br{ bottom:-1px; right:-1px; border-bottom-width:2px; border-right-width:2px; }
+  .bracketed:hover > .corner, .bracketed.active > .corner{ opacity:1; }
+
+  .dialog-overlay{
+    position:fixed; inset:0; z-index:100;
+    background:var(--void);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; text-align:center;
+    animation:none;
+  }
+  .dialog-mark{ width:8px; height:8px; background:var(--green); box-shadow:0 0 10px var(--green); margin-bottom:18px; }
+  .dialog-title{ font-size:22px; letter-spacing:.18em; font-weight:600; text-transform:uppercase; }
+  .dialog-sub{ margin-top:8px; color:var(--text-dim); font-size:12.5px; max-width:420px; }
+  .dialog-cards{ display:flex; gap:18px; margin-top:36px; flex-wrap:wrap; justify-content:center; }
+  .mode-card{
+    width:220px; padding:22px 18px; text-align:left; cursor:pointer;
+    background:var(--panel-bg); border:1px solid var(--line); border-radius:2px;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .mode-card:hover{ border-color:var(--green); transform:translateY(-1px); }
+  .mode-card .glyph{ font-size:11px; letter-spacing:.14em; color:var(--green); text-transform:uppercase; }
+  .mode-card h3{ margin:10px 0 6px; font-size:16px; letter-spacing:.04em; }
+  .mode-card p{ margin:0; font-size:12px; color:var(--text-dim); line-height:1.5; }
+  .dialog-footnote{ margin-top:30px; font-size:11px; color:var(--text-faint); max-width:460px; }
+
+  .app{ display:flex; flex-direction:column; min-height:100%; }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 18px; border-bottom:1px solid var(--line); background:var(--panel-bg);
+    flex-wrap:wrap; gap:10px;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .dot{ width:7px; height:7px; background:var(--green); box-shadow:0 0 8px var(--green); }
+  .brand .word{ letter-spacing:.16em; font-size:12px; text-transform:uppercase; font-weight:600; }
+  .mode-pill{
+    font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; padding:3px 8px;
+    border:1px solid var(--line); border-radius:20px; color:var(--text-dim);
+  }
+  .mode-pill.camera{ color:var(--green); border-color:var(--green); }
+  .mode-pill.viewer{ color:var(--amber); border-color:var(--amber); }
+
+  .topbar-right{ display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .led-cluster{ display:flex; gap:14px; }
+  .led-item{ display:flex; align-items:center; gap:6px; }
+  .led{ width:8px; height:8px; border-radius:50%; background:var(--text-faint); }
+  .led-label{ font-size:10px; letter-spacing:.08em; color:var(--text-dim); text-transform:uppercase; }
+  .led.st-off{ background:var(--text-faint); }
+  .led.st-green{ background:var(--green); box-shadow:0 0 6px var(--green); }
+  .led.st-amber{ background:var(--amber); box-shadow:0 0 6px var(--amber); }
+  .led.st-red{ background:var(--red); box-shadow:0 0 6px var(--red); }
+
+  .btn{
+    background:transparent; border:1px solid var(--line); color:var(--text);
+    padding:8px 14px; border-radius:2px; cursor:pointer; letter-spacing:.05em;
+    text-transform:uppercase; font-size:11px; transition:border-color .15s ease, color .15s ease, opacity .15s ease;
+  }
+  .btn:hover:not(:disabled){ border-color:var(--green); color:var(--green); }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .btn.accent{ border-color:var(--green); color:var(--green); }
+  .btn.accent:hover:not(:disabled){ background:var(--green-dim); }
+  .btn.small{ padding:5px 10px; font-size:10px; }
+  .btn.danger:hover:not(:disabled){ border-color:var(--red); color:var(--red); }
+  .link-btn{ background:none; border:none; color:var(--text-dim); font-size:11px; text-decoration:underline; cursor:pointer; letter-spacing:.03em; }
+  .link-btn:hover{ color:var(--text); }
+
+  .layout{ flex:1; display:grid; grid-template-columns:1fr 360px; gap:16px; padding:16px; align-items:start; }
+  @media (max-width:900px){ .layout{ grid-template-columns:1fr; } }
+
+  .viewport{
+    position:relative; background:#000; border:1px solid var(--line); border-radius:2px;
+    aspect-ratio:16/9; overflow:hidden;
+  }
+  .viewport video{ width:100%; height:100%; object-fit:cover; display:block; background:#000; }
+  .viewport .tag{
+    position:absolute; top:10px; left:10px; display:flex; align-items:center; gap:6px;
+    background:rgba(10,13,12,.6); padding:4px 9px; border-radius:20px; backdrop-filter:blur(2px);
+    font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim);
+  }
+  .viewport .tag .dot{ width:6px; height:6px; border-radius:50%; background:var(--text-faint); }
+  .viewport .tag .dot.live{ background:var(--red); box-shadow:0 0 6px var(--red); }
+  .viewport .empty-hint{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--text-faint); font-size:12px; letter-spacing:.05em; text-align:center; padding:20px;
+  }
+
+  .control-panel{ display:flex; flex-direction:column; gap:14px; }
+  .card{ background:var(--panel-bg); border:1px solid var(--line); border-radius:2px; padding:14px; }
+  .card h4{
+    margin:0 0 12px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .field{ margin-bottom:10px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{ display:block; font-size:10.5px; color:var(--text-dim); margin-bottom:5px; letter-spacing:.03em; text-transform:uppercase; }
+  select, input[type="text"], input[type="number"]{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:2px;
+    padding:8px 9px; color:var(--text);
+  }
+  textarea{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:2px;
+    padding:8px 9px; color:var(--text-dim); font-size:10.5px; resize:vertical; min-height:76px;
+  }
+  textarea[readonly]{ color:var(--text-faint); }
+  .row{ display:flex; gap:8px; }
+  .row > *{ flex:1; }
+  .step{ display:flex; gap:10px; margin-bottom:14px; }
+  .step:last-child{ margin-bottom:0; }
+  .step-num{ color:var(--amber); font-size:11px; padding-top:2px; flex-shrink:0; }
+  .step-body{ flex:1; min-width:0; }
+  .step-body .step-title{ font-size:11px; letter-spacing:.04em; margin-bottom:7px; color:var(--text); }
+  .status-line{ font-size:11px; color:var(--text-dim); margin-top:8px; min-height:14px; }
+  .status-line.error{ color:var(--red); }
+  .status-line.ok{ color:var(--green); }
+  .hint{ font-size:10.5px; color:var(--text-faint); margin-top:6px; line-height:1.5; }
+
+  .compose-row{ display:flex; gap:8px; }
+  .compose-row input{ flex:1; }
+  .gap-card{margin-bottom:14px}
+  .full{width:100%}
+  .top6{margin-top:6px}
+  .top8{margin-top:8px}
+
+  .log-console{ display:flex; flex-direction:column; }
+  .log-list{
+    list-style:none; margin:0; padding:0; max-height:260px; overflow-y:auto;
+    display:flex; flex-direction:column; gap:1px;
+  }
+  .log-list li{
+    font-size:10.5px; padding:6px 8px; border-left:2px solid var(--text-faint);
+    background:var(--panel-2); display:flex; gap:8px; word-break:break-all;
+  }
+  .log-list li.rx{ border-left-color:var(--green); }
+  .log-list li.tx{ border-left-color:var(--amber); }
+  .log-list li.err{ border-left-color:var(--red); }
+  .log-list .t{ color:var(--text-faint); flex-shrink:0; }
+  .log-list .d{ color:var(--text-dim); flex-shrink:0; text-transform:uppercase; }
+  .log-list .m{ color:var(--text); flex:1; }
+  .log-empty{ color:var(--text-faint); font-size:11px; padding:8px 2px; }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-track{ background:var(--panel-2); }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+button, .mode-card { touch-action: manipulation; }
+
+.camera-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;width:100%}
+.camera-grid .cam-box{min-width:0}
+.camera-grid video{display:block;width:100%;height:auto;background:#000}
+#localGrid,#remoteGrid{margin-top:10px}
+#localGrid video{transform:none}
+#mainVideo{display:none}
+
+#cameraErrors{font-size:.8rem;margin-top:6px}.camera-error{padding:2px 0}
+
+.camera-error{padding:3px 0;font-size:.82rem}
+
+.joystick-wrap{ display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:14px; }
+.joystick-base{
+  position:relative;
+  width:180px; height:180px;
+  border-radius:20px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  touch-action:none;
+  user-select:none;
+  transition:opacity .15s ease;
+}
+.joystick-base::before, .joystick-base::after{
+  content:""; position:absolute; background:var(--line-soft);
+}
+.joystick-base::before{ left:0; right:0; top:50%; height:1px; transform:translateY(-.5px); }
+.joystick-base::after{ top:0; bottom:0; left:50%; width:1px; transform:translateX(-.5px); }
+.joystick-base.disabled{ opacity:.35; pointer-events:none; }
+.joystick-caps{ position:absolute; inset:0; pointer-events:none; }
+.jcap{ position:absolute; font-size:9px; color:var(--text-faint); letter-spacing:.08em; }
+.jcap.fwd{ top:8px; left:50%; transform:translateX(-50%); }
+.jcap.back{ bottom:8px; left:50%; transform:translateX(-50%); }
+.jcap.left{ left:8px; top:50%; transform:translateY(-50%); }
+.jcap.right{ right:8px; top:50%; transform:translateY(-50%); }
+.joystick-knob{
+  position:absolute; width:64px; height:64px; border-radius:50%;
+  left:50%; top:50%; transform:translate(-50%,-50%);
+  background:var(--green-dim); border:1px solid var(--green);
+  cursor:grab;
+}
+.joystick-knob.active{ cursor:grabbing; box-shadow:0 0 14px var(--green); }
+.joystick-readout{ font-size:11px; color:var(--text); font-variant-numeric:tabular-nums; }
+
+.toggle-row{ margin-top:2px; }
+.btn.toggle{ flex:1; }
+.btn.toggle.on{ border-color:var(--green); color:var(--void); background:var(--green); }
+#btnLight.toggle.on{ border-color:var(--amber); background:var(--amber); }
+
+.telemetry-row{ display:flex; align-items:center; justify-content:space-between; }
+.telemetry-label{ font-size:10.5px; color:var(--text-dim); letter-spacing:.05em; text-transform:uppercase; }
+.telemetry-value{ font-size:16px; color:var(--green); font-weight:600; font-variant-numeric:tabular-nums; }
+.telemetry-value.stale{ color:var(--text-faint); font-size:14px; }
+
+.check-row{ display:flex; align-items:center; gap:8px; font-size:.85rem; color:var(--text); cursor:pointer; }
+.check-row input[type="checkbox"]{ accent-color:var(--green); width:16px; height:16px; }
+.telemetry-sub{ font-size:10.5px; color:var(--text-faint); margin:-4px 0 2px; font-variant-numeric:tabular-nums; }
+
+
+/* ------------------------------------------------------------------
+   Viewer driving dashboard
+   ------------------------------------------------------------------
+   The viewer is a vehicle control surface, not a conventional
+   responsive page. On phones the video wall and controls must remain
+   visible at the same time, so the page itself does not scroll.
+   Landscape: video wall + control dock side by side.
+   Portrait: video wall above a compact control dock.
+   The remote grid always fills its viewport and tiles every camera
+   without requiring a camera-by-camera scroll.
+------------------------------------------------------------------- */
+
+.viewer-dashboard{
+  height:100dvh;
+  min-height:100dvh;
+  overflow:hidden;
+}
+
+.viewer-dashboard .topbar{
+  flex:0 0 auto;
+}
+
+.viewer-dashboard .layout{
+  min-height:0;
+  height:calc(100dvh - 57px);
+  overflow:hidden;
+  align-items:stretch;
+}
+
+.viewer-dashboard .viewport{
+  min-width:0;
+  min-height:0;
+  height:100%;
+  aspect-ratio:auto;
+  overflow:hidden;
+}
+
+.viewer-dashboard #remoteGrid{
+  position:absolute;
+  inset:0;
+  margin:0;
+  padding:6px;
+  width:100%;
+  height:100%;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-auto-rows:minmax(0,1fr);
+  gap:6px;
+  overflow:hidden;
+  align-content:stretch;
+}
+
+/* One remote camera must use the entire video wall, not just one grid cell. */
+.viewer-dashboard #remoteGrid:has(.cam-box:only-child){
+  grid-template-columns:1fr;
+  grid-template-rows:1fr;
+}
+
+.viewer-dashboard #remoteGrid .cam-box{
+  position:relative;
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+  background:#000;
+  border:1px solid var(--line);
+}
+
+.viewer-dashboard #remoteGrid video{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  display:block;
+  background:#000;
+}
+
+.viewer-dashboard #remoteGrid .label{
+  position:absolute;
+  left:5px;
+  bottom:5px;
+  z-index:2;
+  max-width:calc(100% - 10px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  padding:2px 5px;
+  background:rgba(10,13,12,.72);
+  color:var(--text-dim);
+  font-size:9px;
+  line-height:1.2;
+  pointer-events:none;
+}
+
+.viewer-dashboard .control-panel{
+  min-width:0;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  padding-right:2px;
+}
+
+.viewer-dashboard .control-panel > .log-console{
+  margin-bottom:2px;
+}
+
+/* Once connected, pairing disappears in JS. Make the driving controls
+   compact enough that joystick + arm/light remain immediately reachable. */
+.viewer-dashboard #viewerControls .card{
+  padding:10px;
+}
+
+.viewer-dashboard #viewerControls .gap-card{
+  margin-bottom:8px;
+}
+
+.viewer-dashboard #viewerControls .card h4{
+  margin-bottom:8px;
+}
+
+.viewer-dashboard .joystick-wrap{
+  margin-bottom:8px;
+  gap:5px;
+}
+
+.viewer-dashboard .joystick-base{
+  width:min(180px,30vh);
+  height:min(180px,30vh);
+  max-width:180px;
+  max-height:180px;
+}
+
+.viewer-dashboard .joystick-knob{
+  width:min(64px,11vh);
+  height:min(64px,11vh);
+}
+
+.viewer-dashboard .hint{
+  font-size:9.5px;
+}
+
+.viewer-dashboard .log-list{
+  max-height:120px;
+}
+
+/* Phone landscape. Keep the entire dashboard on one screen. */
+@media (max-width:900px) and (orientation:landscape){
+  .viewer-dashboard .topbar{
+    min-height:42px;
+    padding:5px 9px;
+  }
+
+  .viewer-dashboard .topbar-right{
+    gap:8px;
+  }
+
+  .viewer-dashboard .led-cluster{
+    gap:8px;
+  }
+
+  .viewer-dashboard .layout{
+    grid-template-columns:minmax(0,1fr) minmax(205px,31vw);
+    gap:7px;
+    padding:7px;
+    height:calc(100dvh - 42px);
+  }
+
+  .viewer-dashboard .control-panel{
+    gap:7px;
+  }
+
+  .viewer-dashboard #remoteGrid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:4px;
+    padding:4px;
+  }
+
+  .viewer-dashboard #viewerControls .card{
+    padding:7px;
+  }
+
+  .viewer-dashboard .joystick-base{
+    width:min(150px,28vh);
+    height:min(150px,28vh);
+  }
+
+  .viewer-dashboard .joystick-knob{
+    width:52px;
+    height:52px;
+  }
+
+  .viewer-dashboard .log-console{
+    display:none;
+  }
+
+  .viewer-dashboard #viewerControls .hint{
+    display:none;
+  }
+}
+
+/* Phone portrait. The video wall gets the upper portion; controls are a
+   fixed lower dock so the driver never has to scroll away from the video. */
+@media (max-width:900px) and (orientation:portrait){
+  /* Portrait driving layout: video stays above, the complete driving
+     control surface is a fixed bottom dock. Nothing in the driving
+     controls needs scrolling. */
+  .viewer-dashboard .topbar{
+    min-height:42px;
+    height:42px;
+    padding:5px 8px;
+  }
+
+  .viewer-dashboard .topbar .word{ display:none; }
+  .viewer-dashboard .topbar-right{ gap:7px; }
+  .viewer-dashboard .led-label{ display:none; }
+
+  .viewer-dashboard .layout{
+    grid-template-columns:1fr;
+    grid-template-rows:minmax(0,1fr) 225px;
+    gap:5px;
+    padding:5px;
+    height:calc(100dvh - 42px);
+  }
+
+  /* Portrait phones have much more usable area when cameras are stacked
+     vertically: one feed per row, rather than two narrow side-by-side feeds. */
+  .viewer-dashboard #remoteGrid{
+    grid-template-columns:1fr;
+    grid-auto-rows:minmax(0,1fr);
+  }
+
+  .viewer-dashboard .viewport{
+    min-height:0;
+  }
+
+  .viewer-dashboard .control-panel{
+    display:block;
+    height:225px;
+    min-height:0;
+    overflow:hidden;
+    padding:0;
+  }
+
+  .viewer-dashboard #viewerControls{
+    display:block;
+    height:100%;
+  }
+
+  /* Pairing is allowed to use the bottom dock before connection, but once
+     connected JS hides it and the vehicle control card occupies the dock. */
+  .viewer-dashboard #viewerControls #viewerPairingCard{
+    height:100%;
+    margin:0;
+    overflow:auto;
+  }
+
+  .viewer-dashboard #viewerControls .card:not(#viewerPairingCard){
+    min-width:0;
+  }
+
+  .viewer-dashboard #viewerControls > .card:nth-child(2){
+    height:100%;
+    margin:0;
+    padding:7px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* Joystick is deliberately in the bottom driving dock and centered so it
+     is reachable while the video wall remains visible above it. */
+  .viewer-dashboard .joystick-wrap{
+    flex:0 0 128px;
+    flex-direction:row;
+    justify-content:center;
+    align-items:center;
+    margin:0;
+    gap:10px;
+    min-height:0;
+    padding-bottom:2px;
+  }
+
+  /* Keep the numeric readout at a fixed width. Otherwise values such as
+     9% -> 100% change its intrinsic width and move the joystick sideways. */
+  .viewer-dashboard .joystick-readout{
+    flex:0 0 72px;
+    width:72px;
+    min-width:72px;
+    text-align:center;
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .viewer-dashboard .joystick-base{
+    width:min(126px,30vw,22dvh);
+    height:min(126px,30vw,22dvh);
+    flex:0 0 auto;
+  }
+
+  .viewer-dashboard .joystick-knob{
+    width:48px;
+    height:48px;
+  }
+
+  .viewer-dashboard #viewerControls .toggle-row{
+    flex:0 0 auto;
+    margin:8px 0 4px;
+    gap:6px;
+  }
+
+  .viewer-dashboard #viewerControls .toggle-row .btn{
+    min-height:40px;
+    padding:6px 8px;
+    font-size:11px;
+  }
+
+  .viewer-dashboard #viewerControls .check-row{
+    flex:0 0 auto;
+    font-size:9px;
+    gap:5px;
+  }
+
+  .viewer-dashboard #viewerControls .hint,
+  .viewer-dashboard #viewerControls .status-line{
+    display:none;
+  }
+
+  /* Telemetry is secondary in portrait driving mode. Keep it out of the
+     bottom control surface so ARM/LIGHT/joystick are always visible. */
+  .viewer-dashboard #viewerControls > .card:nth-child(3){
+    display:none;
+  }
+
+  .viewer-dashboard .log-console{ display:none; }
+}
+
+/* Extra-small portrait phones: keep the complete control dock visible. */
+@media (max-width:420px) and (orientation:portrait){
+  .viewer-dashboard .layout{
+    grid-template-rows:minmax(0,1fr) 205px;
+  }
+  .viewer-dashboard .control-panel,
+  .viewer-dashboard #viewerControls{ height:205px; }
+  .viewer-dashboard .joystick-base{
+    width:min(112px,31vw,20dvh);
+    height:min(112px,31vw,20dvh);
+  }
+  .viewer-dashboard .joystick-knob{ width:44px; height:44px; }
+  .viewer-dashboard #viewerControls .toggle-row .btn{
+    min-height:38px;
+    font-size:10px;
+  }
+}
+
+/* If there are many cameras, use three columns on sufficiently wide
+   landscape displays so every feed remains on screen. */
+@media (min-width:1100px){
+  .viewer-dashboard #remoteGrid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media (min-width:1500px){
+  .viewer-dashboard #remoteGrid{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+/* Compact landscape driving mode for small phones (740x360 class). */
+@media (max-width:800px) and (orientation:landscape){
+  .viewer-dashboard{height:100svh;min-height:100svh;}
+  .viewer-dashboard .topbar{height:38px;min-height:38px;padding:4px 7px;flex-wrap:nowrap;gap:6px;}
+  .viewer-dashboard .brand .word{display:none;}
+  .viewer-dashboard .mode-pill{font-size:9px;padding:2px 6px;}
+  .viewer-dashboard .topbar-right{margin-left:auto;min-width:0;flex-wrap:nowrap;gap:5px;}
+  .viewer-dashboard .led-cluster{gap:5px;}
+  .viewer-dashboard .led-label{display:none;}
+  .viewer-dashboard .led{width:6px;height:6px;}
+  .viewer-dashboard .topbar .btn.small{padding:4px 7px;font-size:9px;}
+  .viewer-dashboard .topbar .link-btn{font-size:9px;white-space:nowrap;}
+  .viewer-dashboard .layout{
+    height:calc(100svh - 38px);height:calc(100dvh - 38px);
+    grid-template-columns:minmax(0,1fr) 190px;gap:5px;padding:5px;overflow:hidden;
+  }
+  .viewer-dashboard .viewport{height:100%;}
+  .viewer-dashboard #remoteGrid{padding:3px;gap:3px;}
+  .viewer-dashboard .control-panel{height:100%;overflow:hidden;display:block;}
+  .viewer-dashboard #viewerControls{display:block;height:100%;}
+  .viewer-dashboard #viewerControls .card.gap-card:not(#viewerPairingCard){
+    height:100%;margin:0;padding:5px;display:flex;flex-direction:column;overflow:hidden;
+  }
+  .viewer-dashboard #viewerControls .card.gap-card:not(#viewerPairingCard) h4{flex:0 0 auto;margin:0 0 4px;font-size:9px;}
+  .viewer-dashboard #viewerControls .joystick-wrap{flex:0 0 auto;margin:0;gap:3px;}
+  .viewer-dashboard #viewerControls .joystick-base{width:min(104px,26vh);height:min(104px,26vh);}
+  .viewer-dashboard #viewerControls .joystick-knob{width:42px;height:42px;}
+  .viewer-dashboard #viewerControls .jcap{font-size:7px;}
+  .viewer-dashboard #viewerControls .jcap.fwd{top:5px;}.viewer-dashboard #viewerControls .jcap.back{bottom:5px;}
+  .viewer-dashboard #viewerControls .jcap.left{left:5px;}.viewer-dashboard #viewerControls .jcap.right{right:5px;}
+  .viewer-dashboard #viewerControls .joystick-readout{font-size:9px;white-space:nowrap;}
+  .viewer-dashboard #viewerControls .toggle-row{flex:0 0 auto;margin:4px 0 3px;gap:4px;}
+  .viewer-dashboard #viewerControls .toggle-row .btn{min-width:0;min-height:32px;padding:5px 4px;font-size:9px;}
+  .viewer-dashboard #viewerControls .check-row{flex:0 0 auto;font-size:8px;gap:4px;line-height:1.1;}
+  .viewer-dashboard #viewerControls .check-row input[type="checkbox"]{width:13px;height:13px;margin:0;}
+  .viewer-dashboard #viewerControls .hint,.viewer-dashboard #viewerControls .status-line{display:none;}
+  .viewer-dashboard #viewerControls > .card:last-child{display:none;}
+  .viewer-dashboard .log-console{display:none;}
+  .viewer-dashboard #viewerPairingCard:not([hidden]){
+    position:absolute;z-index:20;left:5px;right:195px;top:43px;
+    max-height:calc(100dvh - 48px);overflow:auto;background:var(--panel-bg);
+  }
+}
+@media (max-width:800px) and (orientation:landscape) and (max-height:380px){
+  .viewer-dashboard .layout{grid-template-columns:minmax(0,1fr) 180px;gap:4px;padding:4px;}
+  .viewer-dashboard #viewerControls .card.gap-card:not(#viewerPairingCard){padding:4px;}
+  .viewer-dashboard #viewerControls .joystick-base{width:92px;height:92px;}
+  .viewer-dashboard #viewerControls .joystick-knob{width:38px;height:38px;}
+  .viewer-dashboard #viewerControls .toggle-row .btn{min-height:30px;}
+}
+
+/* Compact landscape: use the space below the joystick for live telemetry. */
+@media (max-width:800px) and (orientation:landscape){
+  .viewer-dashboard #viewerControls > .card.gap-card:not(#viewerPairingCard){
+    height:auto;
+    min-height:0;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child{
+    display:block;
+    margin-top:5px;
+    padding:5px;
+    min-height:0;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child h4{
+    margin:0 0 3px;
+    font-size:9px;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-row{
+    min-height:0;
+    padding:1px 0;
+    font-size:8px;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-sub{
+    font-size:7px;
+    line-height:1.05;
+    margin:0;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-value{
+    font-size:8px;
+  }
+}
+
+@media (max-width:800px) and (orientation:landscape) and (max-height:380px){
+  .viewer-dashboard #viewerControls > .card:last-child{
+    margin-top:3px;
+    padding:4px;
+  }
+  .viewer-dashboard #viewerControls > .card:last-child h4{font-size:8px;margin-bottom:2px;}
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-row{font-size:7px;padding:0;}
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-value{font-size:7px;}
+  .viewer-dashboard #viewerControls > .card:last-child .telemetry-sub{font-size:6px;}
+}
+
+/* ARM-session CSV download links */
+.arm-log-downloads { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.arm-log-downloads .btn { text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+@media (orientation: landscape) {
+  .viewer-dashboard #armLogDownloads { font-size:8px; }
+  .viewer-dashboard #armLogDownloads h4 { font-size:8px; margin-bottom:2px; }
+  .viewer-dashboard #armLogDownloads .arm-log-downloads { gap:3px; margin-top:3px; }
+  .viewer-dashboard #armLogDownloads .arm-log-downloads .btn { font-size:7px; padding:3px 5px; min-height:22px; }
+}
+@media (orientation: portrait) {
+  .viewer-dashboard #armLogDownloads { margin-top:4px; }
+  .viewer-dashboard #armLogDownloads .arm-log-downloads { display:grid; grid-template-columns:1fr 1fr; }
+  .viewer-dashboard #armLogDownloads .arm-log-downloads .btn { min-height:28px; font-size:9px; }
+}
