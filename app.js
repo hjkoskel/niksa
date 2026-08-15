@@ -611,7 +611,21 @@
       ch.onclose = () => {
         ui.led("ledData","red");
         ui.log("err","sys","Data channel closed.");
-        if (state.mode === "viewer") control.setEnabled(false);
+        if (state.mode === "viewer") {
+          // The link can drop while armed and recording (backgrounding,
+          // screen lock, a network handoff — all far more common on mobile
+          // than on desktop). control.setEnabled(false) force-clears
+          // "armed" but never touched feedRecorder, so a recording in
+          // progress was silently orphaned: it kept running unseen, and a
+          // later reset (teardown) discarded it outright with no chance to
+          // save. Finalize it here first, same as a normal ARM-off, so a
+          // dropped link still leaves a recording to download.
+          if (state.ctrl.armed) {
+            ui.log("err", "rec", "Link lost while recording — finalizing the clip.");
+          }
+          feedRecorder.stopAndHandle(false);
+          control.setEnabled(false);
+        }
       };
       ch.onerror = () => ui.led("ledData","red");
       ch.onmessage = e => {
@@ -1011,18 +1025,51 @@
   };
 
   // --------------------------------------------------------------------
-  // Viewer screen recorder.
+  // Viewer flight-recorder capture.
   //
-  // ARM is the user gesture that starts getDisplayMedia(), so the browser
-  // can show its screen/window/tab picker. Recording continues until ARM
-  // is disabled. Clips of 3 seconds or less are discarded.
+  // This documents an operating session — camera view plus what the pilot
+  // did and saw — as a single video. It is NOT screen capture: there is no
+  // web API that mirrors the live page (with a playing <video> element
+  // inside it) on Android — getDisplayMedia() is desktop-only and rejects
+  // instantly on Chrome for Android with no picker shown, and DOM-to-canvas
+  // snapshot tools (e.g. html2canvas) can't rasterize a live <video> frame
+  // either. So instead of mirroring pixels, this redraws the operationally
+  // relevant parts of the UI onto an offscreen canvas every frame, driven by
+  // the exact same live state and DOM text the on-screen UI reads from
+  // (state.ctrl, the telemetry readouts, the activity log) — camera feed(s),
+  // ARM/light state, throttle/steer + mini joystick, battery/GPS/gyro/accel,
+  // and the latest log line — and records that canvas. It will look like the
+  // app rather than being a literal pixel-for-pixel screenshot of it, but it
+  // carries everything needed to reconstruct what happened during the run.
+  // This also has no Screen Capture API dependency, so it works identically
+  // on desktop and mobile Chrome, with no extra permission prompt.
+  //
+  // Recording continues until ARM is disabled. Clips of 3 seconds or less
+  // are discarded.
   // --------------------------------------------------------------------
-  const screenRecorder = {
+  const feedRecorder = {
     recorder: null,
     stream: null,
     chunks: [],
     startedAt: 0,
     stopping: null,
+    cleanup: null,
+    urls: [],
+
+    // Mirrors armLogger's download-list handling. A finished recording is
+    // offered as a real, visible <a download> link that the person taps
+    // themselves — not window.confirm() + a programmatic a.click(). The
+    // latter is known to be unreliable for blob: URLs on mobile (some
+    // browsers only honor an anchor's download attribute from a genuine,
+    // direct tap), so a real tap is the dependable path cross-platform.
+    clearDownloads() {
+      this.urls.forEach(url => URL.revokeObjectURL(url));
+      this.urls = [];
+      const box = $("videoDownloads");
+      if (box) box.hidden = true;
+      const list = $("videoDownloadList");
+      if (list) list.replaceChildren();
+    },
 
     supportedMimeType() {
       const types = [
@@ -1033,13 +1080,138 @@
       return types.find(type => MediaRecorder.isTypeSupported(type)) || "";
     },
 
+    // Draws the camera view(s) plus an FPV-style instrument overlay: ARM /
+    // light state, elapsed recording time, throttle/steer with a mini
+    // joystick indicator, the telemetry readouts as already shown on screen,
+    // and the latest activity-log line, so the clip stands alone as a
+    // record of what happened.
+    drawOverlay(ctx, W, H, startedAt) {
+      const pad = 14;
+      const font = "13px ui-monospace, Menlo, Consolas, monospace";
+      const boldFont = "700 14px ui-monospace, Menlo, Consolas, monospace";
+
+      const box = (x, y, w, h) => {
+        ctx.fillStyle = "rgba(10,13,12,0.72)";
+        ctx.fillRect(x, y, w, h);
+      };
+      const text = (str, x, y, color, fnt, align = "left") => {
+        ctx.font = fnt || font;
+        ctx.fillStyle = color || "#e8f5ee";
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+        ctx.fillText(str, x, y);
+      };
+
+      // Top bar: ARM / light state, wall clock, elapsed recording time.
+      box(0, 0, W, 30);
+      const armed = state.ctrl.armed;
+      text("●", pad, 15, armed ? "#ff5c5c" : "#4a5a51", "16px monospace");
+      text(armed ? "ARMED" : "DISARMED", pad + 16, 15, armed ? "#ff5c5c" : "#7c9186", boldFont);
+      text(state.ctrl.light ? "LIGHT ON" : "LIGHT OFF", pad + 150, 15,
+        state.ctrl.light ? "#ffb454" : "#4a5a51");
+
+      const elapsed = Math.max(0, (performance.now() - startedAt) / 1000);
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+      const ss = String(Math.floor(elapsed % 60)).padStart(2, "0");
+      text(`${new Date().toTimeString().slice(0, 8)}  ·  REC ${mm}:${ss}`,
+        W - pad, 15, "#e8f5ee", font, "right");
+
+      // Bottom bar: mini joystick, throttle/steer, telemetry, last log line.
+      const barH = 92;
+      const barY = H - barH;
+      box(0, barY, W, barH);
+
+      const jSize = 64, jx = pad, jy = barY + (barH - jSize) / 2;
+      ctx.strokeStyle = "#223129";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(jx, jy, jSize, jSize);
+      ctx.beginPath();
+      ctx.moveTo(jx, jy + jSize / 2); ctx.lineTo(jx + jSize, jy + jSize / 2);
+      ctx.moveTo(jx + jSize / 2, jy); ctx.lineTo(jx + jSize / 2, jy + jSize);
+      ctx.strokeStyle = "#1a231e";
+      ctx.stroke();
+      const dotX = jx + jSize / 2 + (state.ctrl.steer || 0) * (jSize / 2 - 4);
+      const dotY = jy + jSize / 2 - (state.ctrl.throttle || 0) * (jSize / 2 - 4);
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#4dffb0";
+      ctx.fill();
+
+      text(`THR ${Math.round((state.ctrl.throttle || 0) * 100)}%`, jx + jSize + 12, jy + 18);
+      text(`STR ${Math.round((state.ctrl.steer || 0) * 100)}%`, jx + jSize + 12, jy + 40);
+
+      // Telemetry: read straight from the same spans the viewer UI shows,
+      // so the overlay can't drift out of sync with what's on screen.
+      const battery = $("batteryVoltage")?.textContent || "— V";
+      const gps = $("gpsPosition")?.textContent || "—";
+      const gyro = $("gyroValues")?.textContent || "";
+      const accel = $("accelValues")?.textContent || "";
+      const tX = W - pad;
+      text(`BAT ${battery}`, tX, jy + 4, "#e8f5ee", font, "right");
+      text(`GPS ${gps}`, tX, jy + 22, "#e8f5ee", font, "right");
+      text(`GYR ${gyro}`, tX, jy + 40, "#7c9186", font, "right");
+      text(`ACC ${accel}`, tX, jy + 58, "#7c9186", font, "right");
+
+      const lastLi = $("logList")?.lastElementChild;
+      if (lastLi && !lastLi.classList.contains("log-empty")) {
+        const t = lastLi.querySelector(".t")?.textContent || "";
+        const d = lastLi.querySelector(".d")?.textContent || "";
+        const m = lastLi.querySelector(".m")?.textContent || "";
+        let line = `${t}  ${d}  ${m}`.trim();
+        if (line.length > 90) line = line.slice(0, 87) + "…";
+        text(line, W / 2, H - 10, "#4dffb0", "12px ui-monospace, monospace", "center");
+      }
+    },
+
+    // Builds the stream to feed into MediaRecorder, plus a matching cleanup
+    // function. Always composites through a canvas (even with one camera),
+    // since the overlay needs to be drawn regardless of camera count.
+    // Never stops the underlying WebRTC video tracks — only the canvas's
+    // own output track, which nothing else depends on.
+    buildSource() {
+      const entries = [...viewer.streams.values()]
+        .filter(e => e.track.readyState === "live");
+      if (entries.length === 0) return null;
+
+      const W = 1280, H = 720;
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+
+      const cols = Math.ceil(Math.sqrt(entries.length));
+      const rows = Math.ceil(entries.length / cols);
+      const cellW = W / cols, cellH = H / rows;
+      const startedAt = performance.now();
+
+      let raf = null;
+      const draw = () => {
+        ctx.fillStyle = "#0a0d0c";
+        ctx.fillRect(0, 0, W, H);
+        entries.forEach((e, i) => {
+          if (e.video.readyState >= 2) {
+            const x = (i % cols) * cellW, y = Math.floor(i / cols) * cellH;
+            ctx.drawImage(e.video, x, y, cellW, cellH);
+          }
+        });
+        this.drawOverlay(ctx, W, H, startedAt);
+        raf = requestAnimationFrame(draw);
+      };
+      draw();
+
+      const canvasStream = canvas.captureStream(30);
+      return {
+        stream: canvasStream,
+        cleanup: () => {
+          if (raf) cancelAnimationFrame(raf);
+          canvasStream.getTracks().forEach(t => t.stop());
+        }
+      };
+    },
+
     async start() {
       if (this.recorder && this.recorder.state !== "inactive") return true;
 
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        ui.log("err", "rec", "Screen Capture API is not available in this browser.");
-        return false;
-      }
       if (typeof MediaRecorder === "undefined") {
         ui.log("err", "rec", "MediaRecorder API is not available in this browser.");
         return false;
@@ -1051,22 +1223,16 @@
         return false;
       }
 
+      const source = this.buildSource();
+      if (!source) {
+        ui.log("err", "rec", "No camera feed available to record yet.");
+        return false;
+      }
+
       try {
-        // Keep this call in the ARM click's async call chain so the browser
-        // is allowed to display the screen-sharing picker.
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30, max: 60 } },
-          audio: false
-        });
-
-        const track = stream.getVideoTracks()[0];
-        if (!track) {
-          stream.getTracks().forEach(t => t.stop());
-          throw new Error("No video track was returned by screen capture.");
-        }
-
-        const recorder = new MediaRecorder(stream, { mimeType });
-        this.stream = stream;
+        const recorder = new MediaRecorder(source.stream, { mimeType });
+        this.stream = source.stream;
+        this.cleanup = source.cleanup;
         this.recorder = recorder;
         this.chunks = [];
         this.startedAt = performance.now();
@@ -1081,34 +1247,18 @@
             (e.error?.message || e.error?.name || "unknown error"));
         };
 
-        track.addEventListener("ended", () => {
-          // If the browser's "Stop sharing" control is used, disarm first.
-          // This avoids leaving the vehicle armed after capture disappears.
-          ui.log("err", "rec", "Screen sharing ended.");
-          if (state.ctrl.armed) {
-            state.ctrl.armed = false;
-            $("btnArm").classList.remove("on");
-            this.stopAndHandle(true);
-            control.sendFrame();
-          } else {
-            this.stopAndHandle(true);
-          }
-        }, { once: true });
-
         recorder.start(1000);
-        ui.log("rx", "rec", `Screen recording started (${mimeType}).`);
-        ui.status("controlStatus", "ARMED — screen recording active.", "ok");
+        ui.log("rx", "rec", `Recording started (${mimeType}, video + telemetry overlay).`);
+        ui.status("controlStatus", "ARMED — recording active.", "ok");
         return true;
       } catch (e) {
+        source.cleanup();
         this.recorder = null;
         this.stream = null;
+        this.cleanup = null;
         this.chunks = [];
         this.startedAt = 0;
-
-        if (e?.name === "NotAllowedError")
-          ui.log("err", "rec", "Screen capture was cancelled or permission was denied.");
-        else
-          ui.log("err", "rec", "Screen capture failed: " + (e.message || e.name));
+        ui.log("err", "rec", "Recording failed to start: " + (e.message || e.name));
         return false;
       }
     },
@@ -1117,11 +1267,12 @@
       if (this.stopping) return this.stopping;
 
       const recorder = this.recorder;
-      const stream = this.stream;
+      const cleanup = this.cleanup;
 
       if (!recorder) {
-        stream?.getTracks().forEach(t => t.stop());
+        cleanup?.();
         this.stream = null;
+        this.cleanup = null;
         this.chunks = [];
         this.startedAt = 0;
         return;
@@ -1135,10 +1286,11 @@
 
           this.recorder = null;
           this.stream = null;
+          this.cleanup = null;
           this.chunks = [];
           this.startedAt = 0;
 
-          stream?.getTracks().forEach(t => t.stop());
+          cleanup?.();
 
           if (discard || duration <= 3) {
             ui.log("rx", "rec",
@@ -1156,31 +1308,25 @@
           }
 
           const url = URL.createObjectURL(blob);
+          this.urls.push(url);
           const stamp = new Date().toISOString()
             .replace(/[:.]/g, "-")
             .replace(/Z$/, "");
           const filename = `viewer-recording-${stamp}.webm`;
+          const sizeLabel = (blob.size / 1048576).toFixed(1) + " MiB";
+
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.className = "btn small";
+          a.textContent = `${filename} (${sizeLabel}, ${duration.toFixed(1)}s)`;
+          $("videoDownloadList")?.appendChild(a);
+          const box = $("videoDownloads");
+          if (box) box.hidden = false;
 
           ui.log("rx", "rec",
-            `Recording ready: ${(blob.size / 1048576).toFixed(1)} MiB, ${duration.toFixed(1)} s.`);
-
-          const download = window.confirm(
-            `Recording is ready (${duration.toFixed(1)} s).\n\nDownload ${filename}?`
-          );
-
-          if (download) {
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            ui.log("rx", "rec", "Video download started.");
-          } else {
-            ui.log("rx", "rec", "Video download cancelled.");
-          }
-
-          URL.revokeObjectURL(url);
+            `Recording ready: ${sizeLabel}, ${duration.toFixed(1)} s — tap it under ` +
+            `"Video recordings" to save.`);
           resolve();
         };
 
@@ -1321,6 +1467,7 @@
         wakeLock.release();
         state.ctrl.throttle = 0; state.ctrl.steer = 0;
         state.ctrl.armed = false; state.ctrl.light = false;
+        $("app").classList.remove("armed");
         joystick.center(false);
         $("btnArm").classList.remove("on"); $("btnLight").classList.remove("on");
         $("batteryVoltage").textContent = "— V";
@@ -1348,38 +1495,41 @@
     async toggleArm() {
       if (!state.ctrl.armed) {
         // ARM must not depend on the user's recording choice. If recording
-        // is enabled, ask for screen capture first, but arm even when the
-        // picker is cancelled or capture is otherwise unavailable.
+        // is enabled, start it first, but arm even when no camera feed is
+        // available yet or recording otherwise fails to start.
         const recOnArm = $("chkRecOnArm")?.checked !== false;
         if (recOnArm) {
-          const started = await screenRecorder.start();
+          feedRecorder.clearDownloads();
+          const started = await feedRecorder.start();
           if (!started) {
-            ui.log("tx", "you→cam", "Screen recording not started; continuing ARM without recording.");
+            ui.log("tx", "youtocam", "Video recording not started; continuing ARM without recording.");
           }
         }
 
         state.ctrl.armed = true;
+        $("app").classList.add("armed");
         armLogger.start();
         armLogger.record("input", [state.ctrl.throttle, state.ctrl.steer]);
         $("btnArm").classList.add("on");
-        ui.log("tx", "you→cam", "ARM ON" + (recOnArm ? " (recording requested)" : ""));
+        ui.log("tx", "youtocam", "ARM ON" + (recOnArm ? " (recording requested)" : ""));
         this.sendFrame();
         return;
       }
 
       state.ctrl.armed = false;
+      $("app").classList.remove("armed");
       armLogger.stop();
       $("btnArm").classList.remove("on");
-      ui.log("tx", "you→cam", "ARM OFF");
+      ui.log("tx", "youtocam", "ARM OFF");
       this.sendFrame();
-      await screenRecorder.stopAndHandle(false);
+      await feedRecorder.stopAndHandle(false);
       ui.status("controlStatus", "Link live — sending control frames.", "ok");
     },
 
     toggleLight() {
       state.ctrl.light = !state.ctrl.light;
       $("btnLight").classList.toggle("on", state.ctrl.light);
-      ui.log("tx","you→cam", `LIGHT ${state.ctrl.light ? "ON" : "OFF"}`);
+      ui.log("tx","youtocam", `LIGHT ${state.ctrl.light ? "ON" : "OFF"}`);
       this.sendFrame();
     },
 
@@ -1668,8 +1818,8 @@
     state.dc = state.pc = null;
     ui.led("ledConn","off"); ui.led("ledData","off");
     if (state.mode === "viewer") {
-      // Never leave a screen recorder running across reset/mode changes.
-      screenRecorder.stopAndHandle(true);
+      // Never leave a recording running across reset/mode changes.
+      feedRecorder.stopAndHandle(true);
       ui.led("ledMedia","off");
       $("mainVideo").srcObject = null;
       viewer.clear();

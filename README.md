@@ -1,5 +1,7 @@
 # NIKSA
 
+**[Hosted on github pages https://hjkoskel.github.io/niksa/](https://hjkoskel.github.io/niksa/)**
+
 A proof of concept: **a UGV's video feed, telemetry, and RC control link, carried entirely over a phone's 5G connection and a browser tab — no radio transmitter, no video transmitter, no ground-station hardware, no server.**
 
 Two phones (or a phone and a laptop), each running this page from a browser. One is bolted to the vehicle and plugged into its flight controller's UART. The other sits in the operator's hands. Everything in between — video, joystick control, GPS/IMU telemetry — rides over a single WebRTC connection negotiated peer-to-peer over the mobile network.
@@ -56,6 +58,8 @@ Commercial FPV/UGV links (analog FPV, ELRS, TBS Crossfire, DJI O3) all solve the
 ## UGV demo
 
 There is attached raspberry pico firmware for UGV demo.
+
+![alt text](demohwphoto.png)
 
 It can be compiled or flashed with normal arduino IDE or arduino-cli
 ~~~

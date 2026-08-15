@@ -720,3 +720,112 @@ button, .mode-card { touch-action: manipulation; }
   .viewer-dashboard #armLogDownloads .arm-log-downloads { display:grid; grid-template-columns:1fr 1fr; }
   .viewer-dashboard #armLogDownloads .arm-log-downloads .btn { min-height:28px; font-size:9px; }
 }
+
+
+/* ------------------------------------------------------------------
+   Mobile viewer interaction states
+
+   DISARMED:
+     The viewer behaves like a normal page and can scroll vertically so
+     pairing, recording/download links, telemetry and other controls remain
+     reachable on small screens.
+
+   ARMED:
+     Lock the dashboard to the viewport. Video wall and driving controls
+     remain visible together. The joystick owns the touch gesture, so
+     dragging it cannot scroll the page/control dock.
+   ------------------------------------------------------------------ */
+
+@media (max-width:900px){
+  /* Override the original always-fixed viewer dashboard while disarmed. */
+  .viewer-dashboard:not(.armed){
+    height:auto;
+    min-height:100dvh;
+    overflow:visible;
+  }
+
+  .viewer-dashboard:not(.armed) .layout{
+    height:auto;
+    min-height:0;
+    overflow:visible;
+    align-items:start;
+  }
+
+  .viewer-dashboard:not(.armed) .control-panel{
+    overflow:visible;
+    overscroll-behavior:auto;
+  }
+
+  .viewer-dashboard:not(.armed) .viewport{
+    height:auto;
+    aspect-ratio:16/9;
+    min-height:0;
+    overflow:hidden;
+  }
+
+  /* In the disarmed state, the pairing card and all other links/buttons
+     participate in normal document flow. */
+  .viewer-dashboard:not(.armed) #viewerPairingCard{
+    position:static;
+    max-height:none;
+    overflow:visible;
+  }
+
+  .viewer-dashboard:not(.armed) #remoteGrid{
+    position:relative;
+    inset:auto;
+    height:auto;
+    min-height:0;
+    overflow:visible;
+  }
+
+  .viewer-dashboard:not(.armed) #remoteGrid .cam-box{
+    min-height:0;
+  }
+
+  /* Keep the joystick gesture from being interpreted as page scrolling. */
+  .viewer-dashboard .joystick-base{
+    touch-action:none;
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+  }
+
+  .viewer-dashboard .joystick-knob{
+    touch-action:none;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+}
+
+/* Armed mode must remain a non-scrolling driving surface on every mobile
+   orientation, including the short landscape screens where vertical space
+   is especially limited. */
+@media (max-width:900px){
+  .viewer-dashboard.armed{
+    height:100dvh;
+    min-height:100dvh;
+    overflow:hidden;
+  }
+
+  .viewer-dashboard.armed .layout{
+    overflow:hidden;
+  }
+
+  .viewer-dashboard.armed .control-panel{
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+
+  .viewer-dashboard.armed .viewport,
+  .viewer-dashboard.armed #remoteGrid{
+    overflow:hidden;
+  }
+
+  /* Prevent browser gesture navigation/scroll chaining while actively
+     manipulating the driving control. */
+  .viewer-dashboard.armed .joystick-base,
+  .viewer-dashboard.armed .joystick-knob{
+    touch-action:none;
+  }
+}
