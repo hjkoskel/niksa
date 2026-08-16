@@ -4,7 +4,8 @@
 
 **[Hosted on github pages https://hjkoskel.github.io/niksa/](https://hjkoskel.github.io/niksa/)**
 
-[![UGV test drive](ytscreenshot.png)](https://www.youtube.com/watch?v=StTqXEQ2l-Y "UGV test drive")
+(edit: correct video)
+[![UGV test drive](ytscreenshot.png)](https://www.youtube.com/watch?v=DXlQ4oVlqAs "UGV test drive")
 
 
 A proof of concept: **a UGV's video feed, telemetry, and RC control link, carried entirely over a phone's 5G connection and a browser tab — no radio transmitter, no video transmitter, no ground-station hardware, no server.**
