@@ -509,7 +509,12 @@ void sendBatteryTelemetry()
     uint8_t frame[12];
 
     frame[0] = CRSF_SYNC;
-    frame[1] = 8;
+    // Per CRSF spec, LENGTH = TYPE + PAYLOAD + CRC = 1 + 8 + 1 = 10.
+    // (Previously hardcoded to 8 here, which under-reported the frame
+    // by 2 bytes — the payload-only size, not TYPE+PAYLOAD+CRC. The
+    // browser-side parser had a special case to work around this; that
+    // workaround has been removed now that this is spec-correct.)
+    frame[1] = 10;
     frame[2] = CRSF_BATTERY_SENSOR;
 
     // Voltage, big endian.
@@ -532,7 +537,17 @@ void sendBatteryTelemetry()
     frame[11] =
         crsfCrc8(&frame[2], 9);
 
-    Serial.write(frame, sizeof(frame));
+    // Non-blocking send.
+    //
+    // Serial.write() on USB CDC blocks until there is room in the TX
+    // buffer. If the host stops reading (app not polling, port closed,
+    // USB hiccup) that write can block forever, which freezes loop()
+    // and with it crsf.process() and the RC failsafe. So: only write
+    // when we know it won't block, otherwise drop this telemetry frame
+    // and try again next interval.
+    if ((size_t)Serial.availableForWrite() >= sizeof(frame)) {
+        Serial.write(frame, sizeof(frame));
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -585,6 +600,11 @@ void setup()
 
     lastRcFrame = millis();
     lastBatteryTelemetry = millis();
+
+    // Hardware watchdog: if loop() ever stalls (e.g. a blocking call
+    // that doesn't return) for more than 2 seconds, force a reset
+    // instead of requiring a manual power cycle / USB replug.
+    rp2040.wdt_begin(2000);
 }
 
 // -----------------------------------------------------------------------------
@@ -593,6 +613,10 @@ void setup()
 
 void loop()
 {
+    // Feed the watchdog. If loop() ever fails to come back around
+    // within its timeout, the chip resets itself.
+    rp2040.wdt_reset();
+
     // Process all incoming CRSF frames.
     crsf.process();
 

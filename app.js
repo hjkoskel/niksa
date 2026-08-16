@@ -271,13 +271,7 @@
         const length = this.buffer[1];
         if (length < 2 || length > 62) { this.buffer = this.buffer.subarray(1); continue; }
 
-        // Need the type byte to detect the battery-frame quirk below.
-        if (this.buffer.length < 3) break;
-        const type = this.buffer[2];
-
-        let total = length + 2; // spec: Sync + Length bytes precede Type+Payload+CRC
-        if (type === CRSF_BATTERY && length === 8) total = 12; // hardware quirk
-
+        const total = length + 2; // spec: Sync + Length bytes precede Type+Payload+CRC
         if (total > 64) { this.buffer = this.buffer.subarray(1); continue; }
         if (this.buffer.length < total) break;
 
@@ -292,9 +286,9 @@
   }
 
   // Reads voltage from a battery-sensor frame's payload directly. The
-  // parser above now frames these correctly (including the length-byte
-  // quirk workaround), so this just reads the two big-endian voltage
-  // bytes that follow the type byte.
+  // parser above frames these per spec now that niksa.ino sends a
+  // correct LENGTH byte (TYPE+PAYLOAD+CRC), so this just reads the two
+  // big-endian voltage bytes that follow the type byte.
   function crsfDecodeBattery(frame) {
     if (frame.length < 5 || frame[2] !== CRSF_BATTERY) return null;
     return ((frame[3] << 8) | frame[4]) / 100.0;
@@ -307,6 +301,10 @@
       e.className = "status-line" + (kind ? " " + kind : "");
     },
     led(id, state) { $(id).className = "led st-" + state; },
+    LOG_COALESCE_MS: 50, // matches control.TX_INTERVAL_MS
+    MAX_LOG_ENTRIES: 100, // keep the panel light on long/high-rate sessions
+    _logKey: null, _logTs: 0, _logCount: 1,
+
     log(dir, label, data) {
       const list = $("logList"), empty = list.querySelector(".log-empty");
       empty?.remove();
@@ -320,6 +318,26 @@
         text = text + (hex ? "   [" + hex + "]" : "");
       }
 
+      // A burst of the same dir+label (e.g. a flooded data channel, or
+      // any future high-rate source) would otherwise create one <li> —
+      // and run the trim-and-scroll below — per event. Errors always get
+      // their own line; everything else collapses into one updating line
+      // while events keep arriving faster than LOG_COALESCE_MS apart.
+      const key = dir + "|" + label;
+      const now = performance.now();
+      if (dir !== "err" && this._logKey === key && (now - this._logTs) < this.LOG_COALESCE_MS) {
+        this._logCount++;
+        this._logTs = now;
+        const li = list.lastElementChild;
+        if (li) {
+          li.querySelector(".m").textContent = text;
+          li.querySelector(".t").textContent =
+            new Date().toTimeString().slice(0,8) + ` ×${this._logCount}`;
+          return;
+        }
+      }
+      this._logKey = key; this._logTs = now; this._logCount = 1;
+
       const li = document.createElement("li");
       li.className = dir;
       li.innerHTML = `<span class="t">${new Date().toTimeString().slice(0,8)}</span>
@@ -327,7 +345,7 @@
       li.querySelector(".m").textContent = text;
       list.appendChild(li);
       list.scrollTop = list.scrollHeight;
-      while (list.children.length > 300) list.firstChild.remove();
+      while (list.children.length > this.MAX_LOG_ENTRIES) list.firstChild.remove();
     }
   };
 
@@ -344,16 +362,53 @@
       if (state.dc?.readyState === "open") state.dc.send(bytes);
     },
 
-    async write(bytes) {
+    // These frames represent *current* control/telemetry state, sent
+    // repeatedly on a timer — they're never something you want queued.
+    // If the underlying serial link stalls, naively awaiting/queuing
+    // every incoming write means the Pico later receives a burst of
+    // stale frames back-to-back once the stall clears. Since each one
+    // is a structurally valid CRSF frame, each one resets the Pico's
+    // RC failsafe timer — so a backlog can keep the vehicle acting on
+    // seconds-old commands well past when the failsafe should have
+    // cut in. So: keep at most one pending write. A newer frame that
+    // arrives while a write is still in flight replaces the old one
+    // instead of queuing behind it.
+    writeInFlight: false,
+    pendingWrite: null,
+
+    write(bytes) {
       if (!state.serial)
         return ui.log("err", "sys", `Serial not connected — dropped ${bytes.length} byte(s).`);
+
+      if (this.writeInFlight) {
+        if (this.pendingWrite)
+          ui.log("err", "sys", `Serial busy — dropped stale frame (${this.pendingWrite.length}B).`);
+        this.pendingWrite = bytes;
+        return;
+      }
+
+      this._pump(bytes);
+    },
+
+    async _pump(bytes) {
+      this.writeInFlight = true;
       try { await state.serial.write(bytes); }
       catch (e) { ui.log("err", "sys", "Serial write error: " + e.message); }
+      finally {
+        this.writeInFlight = false;
+        if (this.pendingWrite != null) {
+          const next = this.pendingWrite;
+          this.pendingWrite = null;
+          this._pump(next);
+        }
+      }
     },
 
     async disconnect() {
       const s = state.serial;
       state.serial = null;
+      this.writeInFlight = false;
+      this.pendingWrite = null;
       try { await s?.close(); } catch {}
       this.setUI(false, "Disconnected.");
     },
@@ -1433,6 +1488,7 @@
 
   const control = {
     TX_INTERVAL_MS: 50, // ~20 Hz, well inside typical CRSF failsafe windows
+    _lastInputLog: 0,   // throttles armLogger "input" rows to the same cadence
 
     sendFrame() {
       if (state.dc?.readyState !== "open") return;
@@ -1486,10 +1542,23 @@
     setAxes(throttle, steer) {
       state.ctrl.throttle = throttle;
       state.ctrl.steer = steer;
-      armLogger.record("input", [throttle, steer]);
       $("throttleValue").textContent = Math.round(throttle * 100) + "%";
       $("steerValue").textContent = Math.round(steer * 100) + "%";
-      this.sendFrame();
+
+      // pointermove (the joystick's input source) fires at native input
+      // rate — commonly 60-120+ Hz on a touchscreen — not at the 20 Hz
+      // control-link rate. Sending/logging on every raw event floods the
+      // link and, on the camera side, the activity-log panel (which was
+      // reported growing unbounded and causing usability/memory issues
+      // during active joystick drag). The already-running TX_INTERVAL_MS
+      // timer (see startLoop()) already picks up state.ctrl on every
+      // tick, so no immediate send is needed here — just rate-limit the
+      // arm-session log the same way.
+      const now = performance.now();
+      if (now - this._lastInputLog >= this.TX_INTERVAL_MS) {
+        this._lastInputLog = now;
+        armLogger.record("input", [throttle, steer]);
+      }
     },
 
     async toggleArm() {
@@ -1760,6 +1829,15 @@
 
     async acceptOffer() {
       try {
+        // A previous connection left over from a failed/retried pairing
+        // must not stay alive: its ondatachannel handler would keep
+        // writing into the same shared state.dc/state.rxParser as the
+        // new connection, interleaving two byte streams into one
+        // CRSFParser buffer and corrupting frame parsing.
+        state.pc?.close();
+        state.dc = null;
+        state.rxParser = null;
+
         state.pc = rtc.create();
         state.pc.ontrack = e => {
           ui.log("rx","sys",

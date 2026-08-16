@@ -1,6 +1,11 @@
 # NIKSA
 
+
+
 **[Hosted on github pages https://hjkoskel.github.io/niksa/](https://hjkoskel.github.io/niksa/)**
+
+[![UGV test drive](ytscreenshot.png)](https://www.youtube.com/watch?v=StTqXEQ2l-Y "UGV test drive")
+
 
 A proof of concept: **a UGV's video feed, telemetry, and RC control link, carried entirely over a phone's 5G connection and a browser tab — no radio transmitter, no video transmitter, no ground-station hardware, no server.**
 
@@ -10,8 +15,25 @@ Two phones (or a phone and a laptop), each running this page from a browser. One
 
 Commercial FPV/UGV links (analog FPV, ELRS, TBS Crossfire, DJI O3) all solve the same three problems with dedicated radio hardware: get video from the vehicle to the operator, get stick input from the operator to the vehicle, and get telemetry back. This project asks how far you get solving the same three problems with hardware every phone already has — a camera, a modem, and (via Web Serial/WebUSB) a USB port — and nothing else.
 
+
+## Slop warning
+
+For me, this whole project has been a bit of a side quest from FPV drones. I also decided to write the code using a variety of AI tools, which made the project an interesting opportunity to experiment with AI-assisted development.
+
+The main goal was to test 5G connectivity for remote-controlled vehicles. Crashing a toy car and dropping a phone from 10 cm is a lot more "money tolerable" than crashing a drone from 10 m when the USB connection fails during flight.
+
+I'm also less worried about someone taking ideas from this project than I would be with my FPV projects. My guess is that Russians are more likely to just jam existing 5G connectivity than start building 5G-controlled vehicles and infrastructure out of Chinese hardware. So I'm not losing too much sleep over this one.
+
+The code still has some issues, particularly with connection drops and the accumulation of log messages.
+
+For testing, I only had an old, already-abused Nikko RC car platform. The brushed DC motors are now even more worn out, but the platform was still good enough to capture some material for my music video.
+
 ## Architecture
 
+
+![architechture diagram](chart.png)
+
+<!----
 ```
    CAMERA phone                                          VIEWER phone
 ┌─────────────────┐        WebRTC (P2P, no server)      ┌─────────────────┐
@@ -24,6 +46,7 @@ Commercial FPV/UGV links (analog FPV, ELRS, TBS Crossfire, DJI O3) all solve the
 │  (flight ctrl UART)│      • CRSF GPS / accel-gyro  ────▶│  Telemetry panel │
 └─────────────────┘        (from phone sensors)         └─────────────────┘
 ```
+----->
 
 - **Camera role**: opens the phone/laptop camera(s), opens a serial (or WebUSB CH340/CH341/FTDI) connection to the vehicle's flight controller, and bridges bytes in both directions between that port and the WebRTC data channel — verbatim, binary-safe. Optionally also reads the phone's own GPS and motion sensors and injects them onto the same channel as CRSF telemetry frames, useful when the flight controller itself has no GPS/IMU.
 - **Viewer role**: renders the incoming video, and drives a virtual joystick that's packed into standard [CRSF](https://github.com/crsf-wg/crsf) RC-channel frames and sent down the data channel continuously (~20 Hz) — the same frame format a Crossfire receiver would hand to the flight controller, so from the FC's point of view this looks like an ordinary CRSF receiver plugged into UART.
@@ -55,6 +78,7 @@ Commercial FPV/UGV links (analog FPV, ELRS, TBS Crossfire, DJI O3) all solve the
 5. Video should appear on the viewer; the joystick, arm, and light controls become active and start driving the vehicle over CRSF.
 
 # Misc guides and demos
+![alt text](screenshot.png)
 ## UGV demo
 
 There is attached raspberry pico firmware for UGV demo.
